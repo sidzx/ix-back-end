@@ -1,0 +1,125 @@
+import json
+import boto3
+from decimal import Decimal
+
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, Decimal):
+            # Convert Decimal to float or int as needed
+            if o % 1 == 0:
+                return int(o)
+            return float(o)
+        return super(DecimalEncoder, self).default(o)
+dynamodb=boto3.resource("dynamodb")
+
+carts_table="cartItems"
+product_table="INVENTORY"
+
+def lambda_handler(event, context):
+ 
+        
+    print(f"Received Event: {json.dumps(event)}")  # Full event for debugging
+    
+    body_str = event.get("body", None)
+    print(f"Raw Body: {body_str}")
+
+    username = None  # Initialize username
+
+    if body_str:
+        try:
+            body = json.loads(body_str)
+            print(f"Parsed Body: {json.dumps(body)}")
+            username = body.get("username")
+        except json.JSONDecodeError:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"error": "Invalid JSON format in body"}),
+                "headers": {"Access-Control-Allow-Origin": "*"}
+            }
+
+    # If username is not found in body, check directly in event
+    if not username:
+        username = event.get("username")
+
+    # If username isn't in the body, check if it's in the event directly
+    username = username or event.get("username")
+
+
+    # Print username for debugging
+    print(f"Extracted Username: {username}")
+    
+    
+
+    if not username:
+        return {
+                "statusCode": 400,
+                "body": json.dumps({"error": "Username is required"}),
+                "headers": {"Access-Control-Allow-Origin": "*"}
+            }
+
+    # Get all product IDs from CartItems table for this user
+    cart_table = dynamodb.Table(carts_table)
+    response = cart_table.scan(
+        FilterExpression="userId = :username AND #dattr = :dval",
+        ExpressionAttributeValues={
+            ":username": username,
+            ":dval":"N"
+            },
+        ExpressionAttributeNames={
+        "#dattr": "D"  # Because D is a reserved keyword in DynamoDB
+        }
+        )
+
+    cart_items = response.get("Items", [])
+    print(cart_items)
+    if not cart_items:
+        return {
+            "statusCode": 200,
+            "body": json.dumps({"message": "No products in cart", "products": []}),
+            "headers": {"Access-Control-Allow-Origin": "*"}
+        }
+    # product_ids = [item["ProductId"] for item in cart_items]
+
+    # if not product_ids:
+    #     return {
+    #             "statusCode": 200,
+    #             "body": json.dumps({"message": "No products in cart", "products": []}),
+    #             "headers": {"Access-Control-Allow-Origin": "*"}
+    #         }
+
+    # # Fetch product details from Products table
+    # products_table = dynamodb.Table(product_table)
+    # products = []
+        
+    # for product_id in product_ids:
+    #     product_response = products_table.get_item(Key={"id": product_id})
+    #     if "Item" in product_response:
+    #         products.append(product_response["Item"])
+    products_table = dynamodb.Table(product_table)
+    merged_products = []
+
+    for cart_item in cart_items:
+        product_id = cart_item["ProductId"]
+        product_response = products_table.get_item(Key={"id": product_id})
+        
+        if "Item" in product_response:
+            product = product_response["Item"]
+            # Merge quantity from cart
+            product["quantity"] = cart_item.get("quantity", 5)
+            merged_products.append(product)
+
+
+
+
+
+    return {
+            "statusCode": 200,
+            "body": json.dumps({"products":merged_products},cls=DecimalEncoder),
+            "headers": {"Access-Control-Allow-Origin": "*"}  # Enable CORS
+        }
+    # except Exception as e:
+    #     return {
+    #         "statusCode": 500,
+    #         "body": json.dumps({"error": str(e)}),
+    #         "headers": {"Access-Control-Allow-Origin": "*"}
+    #     }
