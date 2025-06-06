@@ -1,0 +1,124 @@
+import json
+import boto3
+from datetime import datetime
+from urllib.parse import urlparse
+import base64
+import concurrent.futures 
+import time
+
+
+dynamodb = boto3.resource('dynamodb')
+s3 = boto3.client("s3")
+TABLE_NAME = "INVENTORY"
+S3_BUCKET = "ix-inventory-01"
+# CloudFront Configurations
+CLOUDFRONT_URL = "https://d3lyuzqaaomlba.cloudfront.net/test/beautiful-flowers-hero.webp"
+KEY_PAIR_ID = "K3M2B4U1SRZEVN"
+PRIVATE_KEY_PATH = "private_key.pem"  # Ensure this is a valid RSA private key
+
+# Expiry Time (e.g., valid for 1 hour)
+EXPIRATION_TIME = int(time.time()) + 3600  # 3600 seconds = 1 hour
+def get_image_base64(image_url):
+    try:
+        print(f"Fetching image from URL: {image_url}")  
+
+        if not image_url.startswith(f"https://{S3_BUCKET}.s3.amazonaws.com/"):
+            print("Invalid image URL format!")
+            return None 
+        
+        image_key = image_url.replace(f"https://{S3_BUCKET}.s3.amazonaws.com/", "")
+
+        # Fetch image from S3
+        s3_object = s3.get_object(Bucket=S3_BUCKET, Key=image_key)
+        image_bytes = s3_object["Body"].read()
+
+        # ✅ Encode image to Base64 UTF-8
+        encoded_image = base64.b64encode(image_bytes).decode("utf-8")
+        print(f"Successfully fetched and encoded image: {image_key}")
+        return encoded_image
+
+
+    except Exception as e:
+        print(f"Error fetching image {image_url}: {e}")
+        return None  
+
+
+#converting 
+def is_not_expired(expiry_date_str):
+    """Check if the expiry date is today or in the future (not expired)."""
+    try:
+        expiry_date = datetime.strptime(expiry_date_str, "%Y-%m-%d").date()
+        return expiry_date >= datetime.today().date()  # Not expired if expiry is today or later
+    except ValueError:
+        return False  # Treat invalid/missing expiry dates as expired
+
+# def generate_signed_url():
+#     """Generate a signed URL for AWS CloudFront"""
+#     # Load the private key
+#     with open(PRIVATE_KEY_PATH, "r") as key_file:
+#         private_key = key_file.read()
+
+#     # Generate CloudFront policy
+#     policy = {
+#         "Statement": [
+#             {
+#                 "Resource": CLOUDFRONT_URL,
+#                 "Condition": {
+#                     "DateLessThan": {"AWS:EpochTime": EXPIRATION_TIME}
+#                 },
+#             }
+#         ]
+#     }
+
+#     # Convert policy to JSON and base64 encode
+#     policy_json = json.dumps(policy, separators=(",", ":"))  # Compact JSON format
+#     policy_b64 = base64.b64encode(policy_json.encode()).decode()
+
+#     # Sign the policy using RSA SHA256
+#     signature = jwt.encode(
+#         {"policy": policy_b64},
+#         private_key,
+#         algorithm="RS256",  # Fix: Using correct RSA algorithm
+#     )
+
+#     # Encode signature to URL-safe base64
+#     signature_b64 = base64.urlsafe_b64encode(signature.encode()).decode()
+
+#     # Construct the signed URL
+#     signed_url = (
+#         f"{CLOUDFRONT_URL}?"
+#         f"Expires={EXPIRATION_TIME}&"
+#         f"Signature={signature_b64}&"
+#         f"Key-Pair-Id={KEY_PAIR_ID}"
+#     )
+
+#     return signed_url
+
+def lambda_handler(event, context):
+    try:
+        table = dynamodb.Table(TABLE_NAME)
+        #this scan whole table
+        response = table.scan()
+
+        items = response.get("Items", [])
+        
+        filtered_items = [
+            item for item in items 
+            if int(item.get("quantity", "0")) > 0 and is_not_expired(item.get("expiry", "1970-01-01"))
+        ]
+        
+       
+        print("Fetched Items:", json.dumps(filtered_items, indent=2))
+        # url = generate_signed_url()
+        # print("Signed URL:", url)
+        return {
+            'statusCode': 200,
+            'body': {"data":filtered_items}
+        }
+
+    except Exception as e:
+        print("Error:", str(e))  # Log the error in CloudWatch
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"message": "Internal Server Error", "error": str(e)})
+        }
