@@ -1,0 +1,206 @@
+import json
+import boto3
+import uuid
+from boto3.dynamodb.conditions import Attr
+dynamodb=boto3.resource('dynamodb')
+DYNAMO_TABLE="cartItems"
+
+def lambda_handler(event, context):
+    try:
+
+        
+        print("Received Event:", json.dumps(event))
+
+
+        query_params = event.get("queryStringParameters")
+        if(query_params):
+            action = query_params.get("action", "").lower() 
+        else:
+            action = event.get("action", "").lower()
+            print("Action:", action)
+
+
+        # # Handle both cases: direct payload or inside "body"
+        # if "body" in event:
+        #     body = json.loads(event["body"])  # API Gateway case
+        # else:
+        #     body = event  # Direct Lambda invocation case
+
+        body = event.get("body", {})
+
+        if isinstance(body, str):  
+            body = json.loads(body)  # Convert JSON string to dictionary if needed
+
+
+        print("Parsed Body:", body)  # Log parsed body
+        print("Action",action)
+         
+        
+        table = dynamodb.Table(DYNAMO_TABLE)
+        if action == "add":
+            return add_to_cart(body, table)
+        elif action == "delete":
+            return delete_from_cart(query_params, table)
+        elif action=="increment":
+            return increment_quantity(body,table)
+        elif action=="decrement":
+            return decrement_quantity(body,table)
+        else:
+            return error_response("Invalid action. ")
+    
+    except Exception as e:
+        return error_response(str(e))
+
+
+def add_to_cart(body,table):
+
+    id=body.get("id")
+    userId=body.get("username")
+    serial_number = str(uuid.uuid4())
+    print(f"productid {id}")
+
+    table.put_item(Item={
+            
+        "userId":userId,
+        "ProductId":id,
+        "quantity":1,
+        "serialNum":serial_number,
+        "D":"N"
+    })
+
+    return {
+        'statusCode': 200,
+        'headers': {
+            'Access-Control-Allow-Origin': '*',  # Allow all origins
+            'Access-Control-Allow-Methods': 'OPTIONS, GET, POST, PUT, DELETE',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+        },
+        'body': json.dumps(" addition success")
+    }
+
+
+def delete_from_cart(query_params, table):
+    """Function to delete an item from the cart"""
+    userId = query_params.get("username")
+    productId = query_params.get("id")
+
+    if not userId or not productId:
+        return error_response("Missing required fields: 'username' or 'id'.")
+
+    print(f"Deleting product: {productId} for user: {userId}")
+
+    response=table.scan(
+        FilterExpression=Attr('userId').eq(userId) & Attr('ProductId').eq(productId)
+    )
+    items = response.get('Items', [])
+    if not items:
+        return {
+            'statusCode': 404,
+            'body': json.dumps("Item not found.")
+        }
+
+    serialNum = items[0]['serialNum']
+    table.update_item(
+        Key={'serialNum': serialNum},
+        UpdateExpression="SET #d = :new_val",
+        ExpressionAttributeNames={'#d': 'D'},
+        ExpressionAttributeValues={':new_val': 'Y'}
+    )
+
+    return {
+        'statusCode': 200,
+        'headers': {
+            'Access-Control-Allow-Origin': '*',  # Allow all origins
+            'Access-Control-Allow-Methods': 'OPTIONS, GET, POST, PUT, DELETE',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+        },
+        'body': json.dumps("items marked as soft deletion success")
+    }
+
+def increment_quantity(body,table):
+    productId=body.get("productId")
+    userId=body.get("userId")
+    quantity=body.get("quantity")
+    print(f"productid {productId}")
+
+    response=table.scan(
+        FilterExpression=Attr('userId').eq(userId) & Attr('ProductId').eq(productId)
+    )
+    items = response.get('Items', [])
+    if not items:
+        return {
+            'statusCode': 404,
+            'body': json.dumps("Item not found.")
+        }
+
+    serialNum = items[0]['serialNum']
+    table.update_item(
+        Key={'serialNum': serialNum},
+        # UpdateExpression="SET #d = :new_val",
+        # ExpressionAttributeNames={'#d': 'D'},
+        # ExpressionAttributeValues={':new_val': 'Y'}
+        UpdateExpression="SET quantity = :new_val",
+        ExpressionAttributeValues={
+                ':new_val': quantity  # Set the quantity directly
+            }
+    )
+
+
+
+    return{
+         'statusCode': 200,
+        'headers': {
+            'Access-Control-Allow-Origin': '*',  # Allow all origins
+            'Access-Control-Allow-Methods': 'OPTIONS, GET, POST, PUT, DELETE',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+        },
+        'body': json.dumps("quantity incremented")
+
+    }
+
+def decrement_quantity(body,table):
+    productId=body.get("productId")
+    userId=body.get("userId")
+    quantity=body.get("quantity")
+    print(f"productid {productId}")
+
+    response=table.scan(
+        FilterExpression=Attr('userId').eq(userId) & Attr('ProductId').eq(productId)
+    )
+    items = response.get('Items', [])
+    if not items:
+        return {
+            'statusCode': 404,
+            'body': json.dumps("Item not found.")
+        }
+
+    serialNum = items[0]['serialNum']
+    table.update_item(
+        Key={'serialNum': serialNum},
+        # UpdateExpression="SET #d = :new_val",
+        # ExpressionAttributeNames={'#d': 'D'},
+        # ExpressionAttributeValues={':new_val': 'Y'}
+        UpdateExpression="SET quantity = :new_val",
+        ExpressionAttributeValues={
+                ':new_val': quantity  # Set the quantity directly
+            }
+    )
+
+
+
+    return{
+         'statusCode': 200,
+        'headers': {
+            'Access-Control-Allow-Origin': '*',  # Allow all origins
+            'Access-Control-Allow-Methods': 'OPTIONS, GET, POST, PUT, DELETE',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+        },
+        'body': json.dumps("quantity decremented")
+
+    }
+def error_response(message):
+    return {
+        "statusCode": 400,  # Bad Request
+        "body": json.dumps({"error": message}),
+    }
+    
