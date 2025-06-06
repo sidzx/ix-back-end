@@ -1,0 +1,94 @@
+import json
+import boto3
+import base64
+import uuid
+import os
+
+# Initialize AWS clients
+s3 = boto3.client('s3')
+dynamodb = boto3.resource('dynamodb')
+
+
+
+# Define your S3 bucket and DynamoDB table
+S3_BUCKET = "ix-inventory-01"
+DYNAMO_TABLE = os.getenv("DYNAMO_TABLE")
+
+def lambda_handler(event, context):
+    try:
+        # Parse the incoming request
+        body = json.loads(event["body"])
+        print(f"RequestMapping: {body}")
+        # Extract details from the payload
+        id = body.get("id", "unknown")
+        userId=body.get("userId")
+        description = body.get("description", "No description")
+        image_data = body.get("cover")  # Base64 encoded image
+        #changes by s
+        price=body.get("price")
+        quantity=body.get("quantity")
+        name=body.get("title")
+        category=body.get("category")
+        expiry=body.get("expiry")
+        unit=body.get("unit")
+        tax=body.get("tax")
+
+
+
+        
+        if not image_data:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"error": "Missing image in request"})
+            }
+        
+        # Decode the base64 image
+        image_bytes = base64.b64decode(image_data)
+        image_id = str(uuid.uuid4())  # Unique ID for the image
+        image_key = f"uploads/{image_id}.jpg"
+        
+        # Upload the image to S3
+        s3.put_object(Bucket=S3_BUCKET, Key=image_key, Body=image_bytes, ContentType="image/jpeg")
+        
+        # Construct the image URL
+        image_url = f"https://{S3_BUCKET}.s3.amazonaws.com/{image_key}"
+        
+        # Store metadata in DynamoDB
+        table = dynamodb.Table(DYNAMO_TABLE)
+
+        print(f"name {name}")
+        print(f"price {price}")
+        print(f"quantity {quantity}")
+        print(f"expiry {expiry}")
+        print(f"category {category}")
+
+        table.put_item(Item={
+            "id": id,
+            "sellerId":userId,
+            "description": description,
+            "image_url": image_url,
+            "name":name,
+            "price":price,
+            "taxOption":tax,
+            "quantity":quantity,
+            "unit":unit,
+            "expiry":expiry,
+            "category":category
+        })
+
+        return {
+            "statusCode": 200,
+             "headers": { 
+            "Access-Control-Allow-Origin": "*",  
+            "Access-Control-Allow-Methods": "OPTIONS, POST, GET",
+            "Access-Control-Allow-Headers": "Content-Type"
+            },
+            "body": json.dumps({"message": "Success",
+            "image_url": image_url})
+            }
+       
+    except Exception as e:
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": str(e)})
+        }
