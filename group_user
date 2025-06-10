@@ -1,0 +1,32 @@
+import boto3
+
+def lambda_handler(event, context):
+    # Extract user info
+    user_pool_id = event['userPoolId']
+    username = event['userName']
+    
+    # Fetch custom role attribute
+    role_attr = None
+    for attr in event['request']['userAttributes']:
+        if attr == 'custom:Role':
+            role_attr = event['request']['userAttributes']['custom:Role']
+            break
+    
+    if role_attr not in ['Seller', 'User']:
+        print(f"Invalid role or role missing: {role_attr}")
+        return event
+    
+    # Initialize Cognito client
+    client = boto3.client('cognito-idp')
+    
+    try:
+        response = client.admin_add_user_to_group(
+            UserPoolId=user_pool_id,
+            Username=username,
+            GroupName=role_attr  # 'seller' or 'user'
+        )
+        print(f"User {username} added to group {role_attr}")
+    except Exception as e:
+        print(f"Error adding user to group: {e}")
+    
+    return event
