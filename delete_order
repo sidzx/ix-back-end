@@ -1,0 +1,66 @@
+import json
+import boto3
+
+dynamodb = boto3.resource('dynamodb')
+# Add this to debug your table schema
+
+table = dynamodb.Table('Orders')
+
+def lambda_handler(event, context):
+    print("EVENT:", json.dumps(event))  # Debug incoming event
+
+    try:
+        # Extract query param
+        query_params = event.get('queryStringParameters')
+       
+
+        orderId = query_params['orderid']
+        userId= query_params['user']
+        print("orderId:", orderId)
+        
+        # Attempt to update the item
+        response = table.update_item(
+            Key={
+                'orderId': orderId,
+                'userId': userId
+            },
+            UpdateExpression="SET #d = :val",
+            ExpressionAttributeNames={
+                '#d': 'D'
+            },
+            ExpressionAttributeValues={
+                ':val': 'Y'
+            },
+            ConditionExpression="attribute_exists(orderId)",
+            ReturnValues="UPDATED_NEW"
+        )
+
+        print("Update response:", response)
+
+        return {
+            'statusCode': 200,
+            'body': json.dumps('Deleted successfully'),
+            'headers': {
+                'Access-Control-Allow-Origin': '*',  # Allow requests from any origin
+                'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type',
+            }
+        }
+
+    except table.meta.client.exceptions.ConditionalCheckFailedException:
+        return {
+            'statusCode': 404,
+            'body': json.dumps('Order ID not found')
+        }
+
+    except Exception as e:
+        print("Exception:", str(e))
+        return {
+            'statusCode': 500,
+            'body': json.dumps(f"Error: {str(e)}"),
+            'headers': {
+                'Access-Control-Allow-Origin': '*',  # Allow requests from any origin
+                'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type',
+            }
+        }
