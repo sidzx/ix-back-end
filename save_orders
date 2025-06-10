@@ -1,0 +1,59 @@
+import json
+import boto3
+import uuid
+
+dynamodb = boto3.resource('dynamodb')
+lambda_client = boto3.client('lambda')
+DYNAMO_TABLE="Orders"
+def lambda_handler(event, context):
+    try:
+        print(f"Full Event: {event}")
+
+        userId = event['userId']
+        items = event['items']
+        totalAmount = event['totalAmount']
+        order_status = event['orderStatus']
+        placed_at = event['placedAt']
+        orderId=str(uuid.uuid4())
+        Address=event['Address']
+
+        print(f"userId: {userId}")
+        print(f"Items: {items}")
+        print(f"Total: {orderId}")
+
+        table=dynamodb.Table(DYNAMO_TABLE)
+
+        table.put_item(Item={
+            
+        "userId":userId,
+        "orderId":orderId,
+        "items":items,
+        "totalAmount":totalAmount,
+        "order_status":order_status,
+        "placed_at":placed_at,
+        "Address":Address,
+        "D":"N"
+        
+        })
+
+        event_to_pass = {
+        
+        'event': items  # Include the original event if you want
+        }
+        params = {
+        'FunctionName': 'sns_test',  # The name of the second Lambda function
+        'InvocationType': 'Event',  # Use 'Event' for async invocation
+        'Payload': json.dumps(event_to_pass)  # Pass the event (data) to the second Lambda
+        }
+        response = lambda_client.invoke(**params)
+        print(f"Lambda invocation response: {response}")
+        return {
+        'statusCode': 200,
+        'body': json.dumps('Order placed and send notification')
+    }
+    except Exception as e:
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": str(e)}),
+           
+        }
