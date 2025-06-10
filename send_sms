@@ -1,0 +1,59 @@
+import json
+import boto3
+
+sns = boto3.client('sns')
+cognito = boto3.client('cognito-idp')
+
+USER_POOL_ID = 'ap-south-1_4dv2lqjrD'  
+
+def get_phone_number(user_id):
+    try:
+        response = cognito.admin_get_user(
+            UserPoolId=USER_POOL_ID,
+            Username=user_id
+        )
+        for attr in response['UserAttributes']:
+            if attr['Name'] == 'custom:PhoneNumber':
+                return attr['Value']
+    except Exception as e:
+        print(f"Failed to get phone number for user {user_id}: {e}")
+        return None
+
+def lambda_handler(event, context):
+    print("EVENT:", json.dumps(event))
+    
+    try:
+        for item in event.get("event", []):
+            seller_id = item.get("sellerId")
+            if not seller_id:
+                print("Missing seller_id in item:", item)
+                continue
+
+            phone_number = get_phone_number(seller_id)
+            
+            if not phone_number:
+                print(f"No phone number found for seller {seller_id}")
+                continue
+            formatted_number = "+91" + str(phone_number)
+            print(formatted_number)
+            message = f"You have a new order for {item.get('name', 'an item')} (Qty: {item.get('quantity')})"
+
+            response = sns.publish(
+                PhoneNumber=formatted_number,
+                Message=message,
+                Subject='New Order Notification'
+            )
+
+            print(f"SNS publish response for seller {seller_id}:", response)
+
+        return {
+            'statusCode': 200,
+            'body': json.dumps({'message': 'SNS messages published successfully'})
+        }
+
+    except Exception as e:
+        print('Error processing event:', str(e))
+        return {
+            'statusCode': 500,
+            'body': json.dumps({'message': 'Failed to process event'})
+        }
