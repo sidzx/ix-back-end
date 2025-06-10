@@ -1,0 +1,53 @@
+import boto3
+import json
+from decimal import Decimal
+
+CORS_HEADERS = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type"
+}
+
+dynamodb = boto3.resource('dynamodb')
+table = dynamodb.Table('Orders')
+
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            # Convert Decimal to int if it's a whole number, else to float
+            return int(obj) if obj % 1 == 0 else float(obj)
+        return super(DecimalEncoder, self).default(obj)
+def lambda_handler(event, context):
+    # username = event.get('username')
+    query_params = event.get('queryStringParameters') or {}
+    username = query_params.get('username')
+    print(username)
+    if not username:
+        return {
+            'statusCode': 400,
+            'body': json.dumps({'message': 'Username not provided'})
+        }
+    
+    try:
+        response = table.scan()
+        orders = response.get('Items', [])
+
+        # Filter orders where any item's sellerId matches the username
+        filtered_orders = [
+            order for order in orders
+            if 'items' in order and any(item.get('sellerId') == username for item in order['items'])
+        ]
+        print(filtered_orders)
+
+        return {
+            'statusCode': 200,
+            'headers': CORS_HEADERS,
+            'body': json.dumps(filtered_orders, cls=DecimalEncoder)
+        }
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return {
+            'statusCode': 500,
+            'body': json.dumps({'message': 'Internal server error'})
+        }
